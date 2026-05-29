@@ -17,6 +17,7 @@
 #include "pinSetup.h"
 #include "buttons.h"
 #include "utils.h"
+#include "audio_i2s.h"
 
 // submodules
 #include "zx8081.h"
@@ -117,12 +118,20 @@ void UniPlay(){
   jtapflag=255;
 
   reset_output_state();
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+  audio_i2s_start();
+#else
   Timer.initialize(100000); //100ms pause prevents anything bad happening before we're ready
   Timer.attachInterrupt(wave2);
+#endif
 }
 
 void UniStop() {
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+  audio_i2s_stop();
+#else
   Timer.stop();
+#endif
   isStopped=true;
   start=0;
   entry.close();                              //Close file
@@ -388,6 +397,9 @@ void ForcePauseAfter0() {
 
 void UniSetup() {
   INIT_OUTPORT;
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+  audio_i2s_begin();
+#endif
   isStopped=true;
   pinState=LOW;
   WRITE_LOW;
@@ -1159,6 +1171,26 @@ void TZXLoop() {
 }
 
 void UniLoop() {
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+  for(byte i=0; i<64 && writepos<buffsize && start==1; i++)
+  {
+  #ifdef Use_CAS
+    if (casduino!=CASDUINO_FILETYPE::NONE)
+    {
+      casduinoLoop();
+    }
+    else
+  #endif
+    {
+      TZXLoop();
+    }
+  }
+
+  if(audio_i2s_service())
+  {
+    writepos=0;
+  }
+#else
   bool _copybuff;
   noInterrupts();
   //Pause interrupts to prevent var reads and copy values out
@@ -1183,4 +1215,5 @@ void UniLoop() {
     {
       TZXLoop();
     }
+#endif
 }

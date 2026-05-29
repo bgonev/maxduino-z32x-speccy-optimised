@@ -76,6 +76,123 @@ bool button_rec()
 
 #else // !defined (BUTTON_ADC)
 
+#if defined(FOUR_BUTTON_NAV)
+
+void setup_buttons(void)
+{
+  //
+}
+
+static bool button_play_raw()
+{
+  return(digitalRead(btnPlay) == LOW);
+}
+
+static bool button_stop_raw()
+{
+  return(digitalRead(btnStop) == LOW);
+}
+
+static bool button_up_raw()
+{
+  return(digitalRead(btnUp) == LOW);
+}
+
+static bool button_down_raw()
+{
+  return(digitalRead(btnDown) == LOW);
+}
+
+bool button_any() {
+  return (button_play_raw() || button_stop_raw() || button_up_raw() || button_down_raw());
+}
+
+bool button_play() {
+  return(button_play_raw() && !button_stop_raw() && !button_up_raw() && !button_down_raw());
+}
+
+bool button_stop() {
+  return(button_stop_raw() && !button_play_raw() && !button_up_raw() && !button_down_raw());
+}
+
+bool button_root()
+{
+  return(button_stop_raw() && button_down_raw() && !button_play_raw() && !button_up_raw());
+}
+
+bool button_down()
+{
+  return(button_down_raw() && !button_play_raw() && !button_stop_raw() && !button_up_raw());
+}
+
+bool button_up()
+{
+  return(button_up_raw() && !button_play_raw() && !button_stop_raw() && !button_down_raw());
+}
+
+#ifdef Use_Rec
+bool button_rec() {
+  return false;
+}
+#endif
+
+#elif defined(THREE_BUTTON_NAV)
+
+void setup_buttons(void)
+{
+  //
+}
+
+static bool button_play_raw()
+{
+  return(digitalRead(btnPlay) == LOW);
+}
+
+static bool button_stop_raw()
+{
+  return(digitalRead(btnStop) == LOW);
+}
+
+static bool button_nav_raw()
+{
+  return(digitalRead(btnNav) == LOW);
+}
+
+bool button_any() {
+  return (button_play_raw() || button_stop_raw() || button_nav_raw());
+}
+
+bool button_play() {
+  return(button_play_raw() && !button_stop_raw() && !button_nav_raw());
+}
+
+bool button_stop() {
+  return(button_stop_raw() && !button_play_raw() && !button_nav_raw());
+}
+
+bool button_root()
+{
+  return(button_stop_raw() && button_nav_raw() && !button_play_raw());
+}
+
+bool button_down()
+{
+  return(button_nav_raw() && !button_play_raw() && !button_stop_raw());
+}
+
+bool button_up()
+{
+  return(button_play_raw() && button_nav_raw() && !button_stop_raw());
+}
+
+#ifdef Use_Rec
+bool button_rec() {
+  return false;
+}
+#endif
+
+#else // !defined(THREE_BUTTON_NAV)
+
 void setup_buttons(void)
 {
   // 
@@ -118,6 +235,8 @@ bool button_rec() {
   #endif
 }
 #endif
+
+#endif // defined(FOUR_BUTTON_NAV) || defined(THREE_BUTTON_NAV)
 
 #endif // defined(BUTTON_ADC)
 

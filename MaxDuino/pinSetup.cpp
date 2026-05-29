@@ -1,6 +1,9 @@
 #include "configs.h"
 #include "Arduino.h"
 #include "pinSetup.h"
+#if defined(ESP32)
+#include <SPI.h>
+#endif
 
 void pinsetup()
 {
@@ -183,6 +186,29 @@ void pinsetup()
 
   // BUTTON PIN CONFIGURATION
   // n.a.
+
+#elif defined(ESP32)
+
+  #if defined(FOUR_BUTTON_NAV)
+    pinMode(btnPlay, INPUT_PULLUP);
+    pinMode(btnStop, INPUT_PULLUP);
+    pinMode(btnUp, INPUT_PULLUP);
+    pinMode(btnDown, INPUT_PULLUP);
+  #elif defined(THREE_BUTTON_NAV)
+    pinMode(btnPlay, INPUT_PULLUP);
+    pinMode(btnStop, INPUT_PULLUP);
+    pinMode(btnNav, INPUT_PULLUP);
+  #else
+    pinMode(btnPlay, INPUT_PULLUP);
+    pinMode(btnStop, INPUT_PULLUP);
+    pinMode(btnUp, INPUT_PULLUP);
+    pinMode(btnDown, INPUT_PULLUP);
+    pinMode(btnRoot, INPUT_PULLUP);
+  #endif
+
+  #if defined(ESP32_SD_SCK_PIN) && defined(ESP32_SD_MISO_PIN) && defined(ESP32_SD_MOSI_PIN)
+    SPI.begin(ESP32_SD_SCK_PIN, ESP32_SD_MISO_PIN, ESP32_SD_MOSI_PIN, chipSelect);
+  #endif
   
 #elif defined(__AVR_ATmega328P__)
   //pinMode(btnPlay,INPUT_PULLUP);  // Not needed, default is INPUT (0)

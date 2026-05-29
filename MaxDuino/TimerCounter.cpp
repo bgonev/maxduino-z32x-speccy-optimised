@@ -2,6 +2,18 @@
 #include "Arduino.h"
 #include "TimerCounter.h"
 
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+
+timerCallback isrCallback = NULL;
+
+TimerCounter::TimerCounter() {};
+void TimerCounter::initialize(unsigned long microseconds) {}
+void TimerCounter::setPeriod(unsigned long microseconds) {}
+void TimerCounter::stop() {}
+void TimerCounter::attachInterrupt(timerCallback isr) { isrCallback = isr; }
+
+#else
+
 /*
  *  Interrupt and PWM utilities for 16 bit Timer1 on ATmega168/328
  *  Original code by Jesse Tane for http://labs.ideo.com August 2008
@@ -657,6 +669,8 @@ void TimerCounter::attachInterrupt(void (*isr)())
 #else
 #error Missing definition of TimerCounter / unsupported device
 #endif
+
+#endif // defined(USE_PCM5120_I2S) && defined(ESP32)
 
 static class TimerCounter _TimerInstance;
 class TimerCounter &Timer = _TimerInstance;

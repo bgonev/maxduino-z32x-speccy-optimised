@@ -67,6 +67,21 @@
   #define WRITE_LOW               digitalWrite(outputPin,LOW)
   #define WRITE_HIGH              digitalWrite(outputPin,HIGH)
 
+#elif defined(ESP32)
+  #ifndef ESP32_OUTPUT_PIN
+    #define ESP32_OUTPUT_PIN 27
+  #endif
+  #define outputPin         ESP32_OUTPUT_PIN
+  #if defined(USE_PCM5120_I2S)
+    #define INIT_OUTPORT          ((void)0)
+    #define WRITE_LOW             ((void)0)
+    #define WRITE_HIGH            ((void)0)
+  #else
+    #define INIT_OUTPORT          pinMode(outputPin,OUTPUT)
+    #define WRITE_LOW             digitalWrite(outputPin,LOW)
+    #define WRITE_HIGH            digitalWrite(outputPin,HIGH)
+  #endif
+
 #elif defined(ARDUINO_ESP8266_WEMOS_D1MINI)
   #define outputPin           16 // D0
   #define INIT_OUTPORT            pinMode(outputPin,OUTPUT)
@@ -169,6 +184,55 @@
 #define BUTTON_ADC
 #define btnADC        A2 // analog input pin for ADC buttons // CHANGED!!!
 #define NO_MOTOR    // because no spare gpio
+
+#elif defined(ESP32)
+//
+// Pin definition for generic ESP32 DevKit boards
+//
+
+  #ifndef ESP32_SD_CS_PIN
+    #define ESP32_SD_CS_PIN 5
+  #endif
+  const byte chipSelect = ESP32_SD_CS_PIN;
+
+  #if defined(FOUR_BUTTON_NAV)
+    #ifndef ESP32_BTN_PLAY_PIN
+      #define ESP32_BTN_PLAY_PIN 32
+    #endif
+    #ifndef ESP32_BTN_STOP_PIN
+      #define ESP32_BTN_STOP_PIN 33
+    #endif
+    #ifndef ESP32_BTN_UP_PIN
+      #define ESP32_BTN_UP_PIN 14
+    #endif
+    #ifndef ESP32_BTN_DOWN_PIN
+      #define ESP32_BTN_DOWN_PIN 13
+    #endif
+    #define btnPlay ESP32_BTN_PLAY_PIN
+    #define btnStop ESP32_BTN_STOP_PIN
+    #define btnUp   ESP32_BTN_UP_PIN
+    #define btnDown ESP32_BTN_DOWN_PIN
+  #elif defined(THREE_BUTTON_NAV)
+    #ifndef ESP32_BTN_PLAY_PIN
+      #define ESP32_BTN_PLAY_PIN 32
+    #endif
+    #ifndef ESP32_BTN_STOP_PIN
+      #define ESP32_BTN_STOP_PIN 33
+    #endif
+    #ifndef ESP32_BTN_NAV_PIN
+      #define ESP32_BTN_NAV_PIN 14
+    #endif
+    #define btnPlay ESP32_BTN_PLAY_PIN
+    #define btnStop ESP32_BTN_STOP_PIN
+    #define btnNav  ESP32_BTN_NAV_PIN
+  #else
+    #define btnPlay       32
+    #define btnStop       33
+    #define btnUp         14
+    #define btnDown       13
+    #define btnRoot       12
+  #endif
+  #define NO_MOTOR
 
 #elif defined(ARDUINO_ESP8266_WEMOS_D1MINI)
 //

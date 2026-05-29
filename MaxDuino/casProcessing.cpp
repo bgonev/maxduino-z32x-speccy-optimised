@@ -509,7 +509,9 @@ void setCASBaud()
       cas_period = 65; //3850 baudios con period=65
       break;
   }
+#if !defined(USE_PCM5120_I2S) || !defined(ESP32)
   Timer.stop();
+#endif
 }
 
 #endif // Use_CAS

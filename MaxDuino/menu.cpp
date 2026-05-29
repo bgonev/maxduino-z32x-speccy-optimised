@@ -24,6 +24,11 @@
 #include "Display.h"
 #include "product_strings.h"
 #include "current_settings.h"
+#include "utils.h"
+
+#if defined(WIFI_CONFIG_PORTAL) && defined(ESP32)
+#include <WiFi.h>
+#endif
 
 #if defined(lineaxy)
 #define M_LINE2 lineaxy
@@ -34,6 +39,12 @@
 enum MenuItems{
   VERSION,
   BAUD_RATE,
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+  VOLUME,
+#endif
+#if defined(WIFI_CONFIG_PORTAL) && defined(ESP32)
+  IP_ADDRESS,
+#endif
 #ifndef NO_MOTOR
   MOTOR_CTL,
 #endif
@@ -46,6 +57,12 @@ enum MenuItems{
 
 const char MENU_ITEM_VERSION[] PROGMEM = "Version...";
 const char MENU_ITEM_BAUD_RATE[] PROGMEM = "Baud Rate ?";
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+const char MENU_ITEM_VOLUME[] PROGMEM = "Volume";
+#endif
+#if defined(WIFI_CONFIG_PORTAL) && defined(ESP32)
+const char MENU_ITEM_IP_ADDRESS[] PROGMEM = "IP Address";
+#endif
 #ifndef NO_MOTOR
 const char MENU_ITEM_MOTOR_CTRL[] PROGMEM = "Motor Ctrl ?";
 #endif
@@ -56,6 +73,12 @@ const char MENU_ITEM_BLK2A[] PROGMEM = "Skip BLK:2A ?";
 const char* const MENU_ITEMS[] PROGMEM = {
   MENU_ITEM_VERSION,
   MENU_ITEM_BAUD_RATE,
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+  MENU_ITEM_VOLUME,
+#endif
+#if defined(WIFI_CONFIG_PORTAL) && defined(ESP32)
+  MENU_ITEM_IP_ADDRESS,
+#endif
 #ifndef NO_MOTOR
   MENU_ITEM_MOTOR_CTRL,
 #endif
@@ -66,6 +89,18 @@ const char* const MENU_ITEMS[] PROGMEM = {
 };
 
 const word BAUDRATES[] PROGMEM = {1200, 2400, 3150, 3600, 3850};
+
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+  #ifndef PCM5120_I2S_VOLUME_STEP
+    #define PCM5120_I2S_VOLUME_STEP 100
+  #endif
+  #ifndef PCM5120_I2S_VOLUME_MIN
+    #define PCM5120_I2S_VOLUME_MIN 0
+  #endif
+  #ifndef PCM5120_I2S_VOLUME_MAX
+    #define PCM5120_I2S_VOLUME_MAX 32767
+  #endif
+#endif
 
 void doOnOffSubmenu(bool& refVar)
 {
@@ -89,6 +124,71 @@ void doOnOffSubmenu(bool& refVar)
     checkLastButton();
   }
 }
+
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+void doVolumeSubmenu()
+{
+  bool updateScreen=true;
+  bool changed=false;
+  lastbtn=true;
+  while(!button_stop() || lastbtn) {
+    if(button_up() && !lastbtn) {
+      if(pcm5120I2sAmplitude <= (PCM5120_I2S_VOLUME_MAX - PCM5120_I2S_VOLUME_STEP)) {
+        pcm5120I2sAmplitude += PCM5120_I2S_VOLUME_STEP;
+      } else {
+        pcm5120I2sAmplitude = PCM5120_I2S_VOLUME_MAX;
+      }
+      lastbtn=true;
+      updateScreen=true;
+      changed=true;
+    }
+    if(button_down() && !lastbtn) {
+      if(pcm5120I2sAmplitude >= (PCM5120_I2S_VOLUME_MIN + PCM5120_I2S_VOLUME_STEP)) {
+        pcm5120I2sAmplitude -= PCM5120_I2S_VOLUME_STEP;
+      } else {
+        pcm5120I2sAmplitude = PCM5120_I2S_VOLUME_MIN;
+      }
+      lastbtn=true;
+      updateScreen=true;
+      changed=true;
+    }
+
+    if(updateScreen) {
+      ultoa(pcm5120I2sAmplitude, (char *)input, 10);
+      printtext((char *)input, M_LINE2);
+      updateScreen=false;
+    }
+
+    checkLastButton();
+  }
+
+  if(changed) {
+    savePersistentPcm5120I2sAmplitude(pcm5120I2sAmplitude);
+  }
+}
+#endif
+
+#if defined(WIFI_CONFIG_PORTAL) && defined(ESP32)
+void doIpAddressSubmenu()
+{
+  bool updateScreen=true;
+  lastbtn=true;
+  while(!button_stop() || lastbtn) {
+    if(updateScreen) {
+      if(WiFi.status() == WL_CONNECTED) {
+        char ipText[16];
+        WiFi.localIP().toString().toCharArray(ipText, sizeof(ipText));
+        printtext(ipText, M_LINE2);
+      } else {
+        printtextF(PSTR("Not connected"), M_LINE2);
+      }
+      updateScreen=false;
+    }
+
+    checkLastButton();
+  }
+}
+#endif
 
 void menuMode()
 { 
@@ -163,6 +263,18 @@ void menuMode()
             checkLastButton();
           }
         break;
+
+        #if defined(USE_PCM5120_I2S) && defined(ESP32)
+          case MenuItems::VOLUME:
+            doVolumeSubmenu();
+            break;
+        #endif
+
+        #if defined(WIFI_CONFIG_PORTAL) && defined(ESP32)
+          case MenuItems::IP_ADDRESS:
+            doIpAddressSubmenu();
+            break;
+        #endif
 
         #ifndef NO_MOTOR
           case MenuItems::MOTOR_CTL:

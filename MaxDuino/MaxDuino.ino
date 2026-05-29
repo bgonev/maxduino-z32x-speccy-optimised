@@ -166,6 +166,8 @@
 #include "pinSetup.h"
 #include "USBStorage.h"
 #include "power.h"
+#include "wifi_config.h"
+#include "ftp_server.h"
 
 #ifdef BLOCK_EEPROM_PUT
 #include "EEPROM_wrappers.h"
@@ -291,6 +293,8 @@ void setup() {
   #endif
 
   setup_buttons();
+  loadPersistentPcm5120I2sSettings();
+  wifi_config_begin();
  
   #ifdef SPLASH_SCREEN
     while (!button_any()){
@@ -312,6 +316,7 @@ void setup() {
     //Start SD card and check it's working
     printtextF(PSTR("No SD Card"),0);
     delay(50);
+    wifi_config_loop();
     #ifdef SOFT_POWER_OFF
     check_power_off_key();
     #endif
@@ -325,6 +330,7 @@ void setup() {
   #endif
 
   changeDirRoot();
+  ftp_server_begin();
   UniSetup();                       //Setup TZX specific options
     
   printtextF(PSTR("Reset.."),0);
@@ -354,6 +360,12 @@ void setup() {
 extern unsigned long soft_poweroff_timer;
 
 void loop(void) {
+  if(start==0)
+  {
+    wifi_config_loop();
+    ftp_server_loop();
+  }
+
   if(start==1)
   {
     //TZXLoop only runs if a file is playing, and keeps the buffer full.
@@ -1157,7 +1169,9 @@ void SetPlayBlock()
 #endif
   {
     currentBlockTask = BLOCKTASK::READPARAM;               //First block task is to read in parameters
+#if !defined(USE_PCM5120_I2S) || !defined(ESP32)
     Timer.setPeriod(1000);
+#endif
   }
 }
 

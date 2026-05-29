@@ -75,8 +75,13 @@
     #error Unknown I2C library configuration
   #endif
 
-  #define mx_i2c_init() Wire.begin();\
-                        Wire.setClock(I2CCLOCK)
+  #if defined(I2C_SDA_PIN) && defined(I2C_SCL_PIN)
+    #define mx_i2c_init() Wire.begin(I2C_SDA_PIN, I2C_SCL_PIN);\
+                          Wire.setClock(I2CCLOCK)
+  #else
+    #define mx_i2c_init() Wire.begin();\
+                          Wire.setClock(I2CCLOCK)
+  #endif
   #define mx_i2c_start(address) Wire.beginTransmission(address)
   #define mx_i2c_write(byte) Wire.write(byte)
   #define mx_i2c_end() Wire.endTransmission()
