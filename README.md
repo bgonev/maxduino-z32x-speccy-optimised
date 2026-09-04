@@ -95,6 +95,12 @@ The default amplitude is `28000`. Each Up/Down press changes it by `100`. The fi
 
 The volume value is stored in ESP32 flash memory when changed from the menu or the WiFi configuration page, so the saved value is reused after the next power on.
 
+The ESP32 PCM5120 build also provides a `Waveform` menu item. `Square` is the default compatibility mode; `Sine` applies a smoother half-cycle waveform to normal pulse blocks. Direct-recording blocks retain their encoded sample levels. The ESP32 I2S clock uses the audio PLL (APLL).
+
+The `Audio Channel` menu item selects `Left` or `Right`; stereo output is not used. `Left` is the default.
+
+The `Skip BLK:2A ?` menu item is off by default. With it off, playback pauses at TZX hardware-type stop blocks for manual tape control; enable it to skip those stops.
+
 ## Prepare The SD Card
 
 1. Format the microSD card as FAT32.

@@ -12,6 +12,7 @@
 #define HOLD_SIGNAL_FLAG    0x5000
 #define HOLD_SIGNAL_MASK    0xF000
 #define HOLD_SIGNAL_MAX_US  0x0FFF
+#define LEVEL_SIGNAL_FLAG   0x7000
 
 // processing.cpp can call stopFile and seekFile, which are defined in MaxDuino.ino
 void stopFile();
@@ -27,7 +28,7 @@ enum BLOCKID
   ID13 = 0x13,    //Sequence of pulses of various lengths
   ID14 = 0x14,    //Pure data block
   ID15 = 0x15,    //Direct recording block
-//  ID18 = 0x18,    //CSW recording block
+  ID18 = 0x18,    //CSW recording block
   ID19 = 0x19,    //Generalized data block (NB hacked for zx81 only, will not work for anything else)
   ID20 = 0x20,    //Pause (silence) or 'Stop the tape' command
   ID21 = 0x21,    //Group start

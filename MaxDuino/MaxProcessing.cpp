@@ -18,6 +18,10 @@
 #include "buttons.h"
 #include "utils.h"
 #include "audio_i2s.h"
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+#include <miniz.h>
+#include <cstdlib>
+#endif
 
 // submodules
 #include "zx8081.h"
@@ -44,7 +48,81 @@ word currentPeriod=1;
 word pauseLength=0;
 unsigned long bytesToRead=0;
 bool EndOfFile=false;
-unsigned long loopStart=0;
+static const byte TZX_LOOP_STACK_SIZE = 8;
+static unsigned long tzxLoopStarts[TZX_LOOP_STACK_SIZE];
+static word tzxLoopCounts[TZX_LOOP_STACK_SIZE];
+static byte tzxLoopDepth=0;
+static unsigned long tzxBlockOffsets[512];
+static uint16_t tzxBlockCount=0;
+static int tzxCurrentBlock=-1;
+struct TzxCallFrame {
+  int returnBlock;
+  int targets[16];
+  byte count;
+  byte next;
+};
+static TzxCallFrame tzxCallStack[8];
+static byte tzxCallDepth=0;
+static bool tzxInteractiveSelect=true;
+
+static byte chooseTzxSelection(byte count) {
+  byte selected=0;
+  lastbtn=true;
+  while (true) {
+    if (button_up() && !lastbtn && selected>0) { selected--; lastbtn=true; }
+    if (button_down() && !lastbtn && selected+1<count) { selected++; lastbtn=true; }
+    if (button_play() && !lastbtn) { lastbtn=true; return selected; }
+    if (button_stop() && !lastbtn) { lastbtn=true; return 0; }
+    printtextF(PSTR("Select"), 0);
+    utoa((unsigned int)selected + 1, (char *)input, 10);
+    printtext((char *)input, 1);
+    checkLastButton();
+  }
+}
+
+static unsigned long tzx_u32(unsigned long p) {
+  if (readfile(4, p) != 4) return 0;
+  return (unsigned long)filebuffer[0] | ((unsigned long)filebuffer[1] << 8) |
+         ((unsigned long)filebuffer[2] << 16) | ((unsigned long)filebuffer[3] << 24);
+}
+
+static unsigned long tzx_block_size(unsigned long p) {
+  if (p >= filesize) return 0;
+  if (readfile(1, p) != 1) return 0;
+  byte id=filebuffer[0];
+  if (id==0x10) return 5 + (readfile(2,p+3)==2 ? word(filebuffer[1],filebuffer[0]) : 0);
+  if (id==0x11) return 19 + tzx_u32(p+16);
+  if (id==0x12) return 5;
+  if (id==0x13) return readfile(1,p+1)==1 ? 2 + (2UL*filebuffer[0]) : 0;
+  if (id==0x14) return 10 + tzx_u32(p+8);
+  if (id==0x15) return 8 + tzx_u32(p+5);
+  if (id==0x18 || id==0x19) return 5 + tzx_u32(p+1);
+  if (id==0x20) return 3;
+  if (id==0x21) return readfile(1,p+1)==1 ? 2 + filebuffer[0] : 0;
+  if (id==0x22 || id==0x25 || id==0x27) return 1;
+  if (id==0x23 || id==0x24) return 3;
+  if (id==0x26) return readfile(2,p+1)==2 ? 3 + 2UL*word(filebuffer[1],filebuffer[0]) : 0;
+  if (id==0x28 || id==0x2A) return id==0x2A ? 5 : (readfile(2,p+1)==2 ? 3 + word(filebuffer[1],filebuffer[0]) : 0);
+  if (id==0x2B) return 5 + tzx_u32(p+1);
+  if (id==0x30) return readfile(1,p+1)==1 ? 2 + filebuffer[0] : 0;
+  if (id==0x31) return readfile(1,p+2)==1 ? 3 + filebuffer[1] : 0;
+  if (id==0x32) return readfile(2,p+1)==2 ? 3 + word(filebuffer[1],filebuffer[0]) : 0;
+  if (id==0x33) return readfile(1,p+1)==1 ? 2 + 3UL*filebuffer[0] : 0;
+  if (id==0x35) return 21 + tzx_u32(p+17);
+  if (id==0x5A) return 10;
+  return 0;
+}
+
+static void indexTZXBlocks() {
+  tzxBlockCount=0;
+  unsigned long p=10;
+  while (tzxBlockCount < 512 && p < filesize) {
+    unsigned long size=tzx_block_size(p);
+    if (!size || size > filesize - p) break;
+    tzxBlockOffsets[tzxBlockCount++]=p;
+    p += size;
+  }
+}
 
 PROGMEM const byte TZXTape[7] = {'Z','X','T','a','p','e','!'};
 
@@ -66,6 +144,15 @@ word sync1Length=0;
 word sync2Length=0;
 word zeroPulse=0;
 word onePulse=0;
+unsigned long cswPulsesRemaining=0;
+unsigned long cswRunRemaining=0;
+word cswSamplePeriodUs=1;
+byte cswCompression=0;
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+static byte *cswExpandedData = nullptr;
+static unsigned long cswExpandedLength = 0;
+static unsigned long cswExpandedPos = 0;
+#endif
 byte uefpassforZero=2;
 //byte passforOne=4;
 byte jtapflag=255;
@@ -116,6 +203,8 @@ void UniPlay(){
   uefpassforZero=2;
   //passforOne=4;
   jtapflag=255;
+  tzxLoopDepth=0;
+  tzxCallDepth=0;
 
   reset_output_state();
 #if defined(USE_PCM5120_I2S) && defined(ESP32)
@@ -144,6 +233,14 @@ void UniStop() {
   casduino = CASDUINO_FILETYPE::NONE;
 #endif
   reset_output_state();
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+  if (cswExpandedData) {
+    std::free(cswExpandedData);
+    cswExpandedData = nullptr;
+    cswExpandedLength = 0;
+    cswExpandedPos = 0;
+  }
+#endif
 }
 
 bool getNextDataByte() {
@@ -318,6 +415,104 @@ void PureDataBlock() {
   }
 }
 
+static bool readCswEncodedByte(byte &value)
+{
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+  if (cswCompression == 2) {
+    if (cswExpandedPos >= cswExpandedLength) return false;
+    value = cswExpandedData[cswExpandedPos++];
+    return true;
+  }
+#endif
+  if (bytesToRead == 0 || !ReadByte()) return false;
+  bytesToRead--;
+  value = outByte;
+  return true;
+}
+
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+static bool prepareCswZRle(unsigned long compressedLength)
+{
+  if (compressedLength == 0 || cswPulsesRemaining == 0 ||
+      compressedLength > 0xFFFFFFFFUL / 5UL ||
+      cswPulsesRemaining > 0xFFFFFFFFUL / 5UL) return false;
+
+  byte *compressed = (byte *)std::malloc(compressedLength);
+  const unsigned long capacity = cswPulsesRemaining * 5UL + 1UL;
+  byte *expanded = (byte *)std::malloc(capacity);
+  if (!compressed || !expanded) {
+    std::free(compressed);
+    std::free(expanded);
+    return false;
+  }
+
+  unsigned long position = bytesRead;
+  unsigned long remaining = compressedLength;
+  unsigned long copied = 0;
+  while (remaining) {
+    const byte chunk = remaining > 20 ? 20 : (byte)remaining;
+    if (readfile(chunk, position) != chunk) {
+      std::free(compressed);
+      std::free(expanded);
+      return false;
+    }
+    memcpy(compressed + copied, filebuffer, chunk);
+    position += chunk;
+    copied += chunk;
+    remaining -= chunk;
+  }
+
+  mz_ulong expandedSize = capacity;
+  const int result = mz_uncompress(expanded, &expandedSize, compressed, compressedLength);
+  std::free(compressed);
+  if (result != MZ_OK || expandedSize == 0) {
+    std::free(expanded);
+    return false;
+  }
+  cswExpandedData = expanded;
+  cswExpandedLength = expandedSize;
+  cswExpandedPos = 0;
+  return true;
+}
+#endif
+
+void CSWBlock() {
+  if (currentBlockTask == BLOCKTASK::PAUSE || cswPulsesRemaining == 0) {
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+    if (cswExpandedData) {
+      std::free(cswExpandedData);
+      cswExpandedData = nullptr;
+      cswExpandedLength = 0;
+      cswExpandedPos = 0;
+    }
+#endif
+    temppause = pauseLength;
+    currentID = BLOCKID::IDPAUSE;
+    return;
+  }
+
+  if (cswRunRemaining == 0) {
+    byte encoded = 0;
+    if (!readCswEncodedByte(encoded)) { currentID = BLOCKID::IDEOF; return; }
+    if (encoded != 0) {
+      cswRunRemaining = encoded;
+    } else {
+      cswRunRemaining = 0;
+      for (byte i=0; i<4; ++i) {
+        if (!readCswEncodedByte(encoded)) { currentID = BLOCKID::IDEOF; return; }
+        cswRunRemaining |= ((unsigned long)encoded << (8 * i));
+      }
+    }
+  }
+
+  unsigned long run = cswRunRemaining;
+  const unsigned long maxRun = 65534UL / (cswSamplePeriodUs ? cswSamplePeriodUs : 1);
+  if (maxRun && run > maxRun) run = maxRun;
+  currentPeriod = word(run * cswSamplePeriodUs);
+  cswRunRemaining -= run;
+  cswPulsesRemaining--;
+}
+
 void writeDataDirect() {
   // Push byte from file into the buffer, with minimal processing.
   // One byte (8 bits) from file turns directly into one entry in the buffer
@@ -415,6 +610,7 @@ void ReadTZXHeader() {
   //Read and check first 10 bytes for a TZX header
   if(readfile(10, 0)==10 && memcmp_P(filebuffer, TZXTape, 7)==0) {
     bytesRead = 10;
+    indexTZXBlocks();
     return;
   }
 
@@ -473,6 +669,10 @@ void TZXProcess() {
       //grab 1 byte ID
       if(ReadByte()) {
         currentID = outByte;
+        tzxCurrentBlock=-1;
+        for (uint16_t i=0; i<tzxBlockCount; ++i) {
+          if (tzxBlockOffsets[i] == bytesRead-1) { tzxCurrentBlock=i; break; }
+        }
       } else {
         currentID = BLOCKID::IDEOF;
       }
@@ -706,6 +906,42 @@ void TZXProcess() {
           break;
 
 
+        case BLOCKID::ID18:
+          if (currentBlockTask == BLOCKTASK::READPARAM) {
+            unsigned long blockLength = 0;
+            if (ReadDword()) blockLength = outLong;
+            if (ReadWord()) pauseLength = outWord;
+            unsigned long sampleRate = 0;
+            for (byte i=0; i<3; ++i) {
+              if (!ReadByte()) { currentID = BLOCKID::IDEOF; break; }
+              sampleRate |= ((unsigned long)outByte << (8 * i));
+            }
+            if (ReadByte()) cswCompression = outByte;
+            if (ReadDword()) cswPulsesRemaining = outLong;
+            if (blockLength < 10 || sampleRate == 0 || (cswCompression != 1 && cswCompression != 2)) {
+              currentID = BLOCKID::UNKNOWN;
+              break;
+            }
+            cswSamplePeriodUs = (word)(1000000UL / sampleRate);
+            if (cswSamplePeriodUs == 0) cswSamplePeriodUs = 1;
+            bytesToRead = blockLength - 10;
+            cswRunRemaining = 0;
+#if defined(USE_PCM5120_I2S) && defined(ESP32)
+            if (cswCompression == 2) {
+              if (!prepareCswZRle(bytesToRead)) {
+                currentID = BLOCKID::UNKNOWN;
+                break;
+              }
+              bytesRead += bytesToRead;
+              bytesToRead = 0;
+            }
+#endif
+            currentBlockTask = BLOCKTASK::TDATA;
+          } else {
+            CSWBlock();
+          }
+          break;
+
         case BLOCKID::ID19:
           //Process ID19 - Generalized data block
           switch (currentBlockTask) {
@@ -774,23 +1010,92 @@ void TZXProcess() {
           currentTask = TASK::GETID;
           break;
 
+        case BLOCKID::ID23: {
+          if (!ReadWord() || tzxCurrentBlock < 0) { currentID=BLOCKID::UNKNOWN; break; }
+          int target = tzxCurrentBlock + 1 + (int)(int16_t)outWord;
+          if (target < 0 || target >= tzxBlockCount) { currentID=BLOCKID::UNKNOWN; break; }
+          bytesRead = tzxBlockOffsets[target];
+          currentTask = TASK::GETID;
+          break;
+        }
+
         case BLOCKID::ID24:
           //Process ID24 - Loop Start          
-          if(ReadWord()) {
-            loopCount = outWord;
-            loopStart = bytesRead;
+          if(ReadWord() && outWord > 0 && tzxLoopDepth < TZX_LOOP_STACK_SIZE) {
+            tzxLoopCounts[tzxLoopDepth] = outWord;
+            tzxLoopStarts[tzxLoopDepth] = bytesRead;
+            tzxLoopDepth++;
           }
           currentTask = TASK::GETID;
           break;
 
         case BLOCKID::ID25:
           //Process ID25 - Loop End          
-          loopCount += -1;
-          if(loopCount!=0) {
-            bytesRead = loopStart;
-          } 
+          if (tzxLoopDepth > 0) {
+            if (--tzxLoopCounts[tzxLoopDepth - 1] != 0) {
+              bytesRead = tzxLoopStarts[tzxLoopDepth - 1];
+            } else {
+              tzxLoopDepth--;
+            }
+          }
           currentTask = TASK::GETID;
           break;
+
+        case BLOCKID::ID26: {
+          if (!ReadWord() || tzxCurrentBlock < 0 || outWord == 0 || outWord > 16 || tzxCallDepth >= 8) { currentID=BLOCKID::UNKNOWN; break; }
+          TzxCallFrame &frame = tzxCallStack[tzxCallDepth++];
+          frame.returnBlock = tzxCurrentBlock + 1;
+          frame.count=(byte)outWord;
+          frame.next=1;
+          for (byte i=0; i<frame.count; ++i) {
+            if (!ReadWord()) { currentID=BLOCKID::UNKNOWN; break; }
+            frame.targets[i]=tzxCurrentBlock + 1 + (int)(int16_t)outWord;
+            if (frame.targets[i] < 0 || frame.targets[i] >= tzxBlockCount) { currentID=BLOCKID::UNKNOWN; break; }
+          }
+          int target = frame.targets[0];
+          if (target < 0 || target >= tzxBlockCount) { currentID=BLOCKID::UNKNOWN; break; }
+          bytesRead = tzxBlockOffsets[target];
+          currentTask = TASK::GETID;
+          break;
+        }
+
+        case BLOCKID::ID27:
+          if (tzxCallDepth == 0) { currentID=BLOCKID::UNKNOWN; break; }
+          {
+          TzxCallFrame &frame = tzxCallStack[tzxCallDepth - 1];
+          if (frame.next < frame.count) {
+            int target=frame.targets[frame.next++];
+            bytesRead=tzxBlockOffsets[target];
+          } else if (frame.returnBlock >= 0 && frame.returnBlock < tzxBlockCount) {
+            bytesRead=tzxBlockOffsets[frame.returnBlock];
+            tzxCallDepth--;
+          } else { currentID=BLOCKID::UNKNOWN; break; }
+          currentTask = TASK::GETID;
+          }
+          break;
+
+        case BLOCKID::ID28: {
+          unsigned int length=0;
+          if (!ReadWord() || !ReadByte() || tzxCurrentBlock < 0) { currentID=BLOCKID::UNKNOWN; break; }
+          length = outWord;
+          byte selections = outByte;
+          if (selections == 0) { currentID=BLOCKID::UNKNOWN; break; }
+          static int selectionsTargets[32];
+          if (selections > 32) { currentID=BLOCKID::UNKNOWN; break; }
+          for (byte i=0; i<selections; ++i) {
+            if (!ReadWord()) { currentID=BLOCKID::UNKNOWN; break; }
+            selectionsTargets[i]=tzxCurrentBlock + 1 + (int)(int16_t)outWord;
+            if (!ReadByte()) { currentID=BLOCKID::UNKNOWN; break; }
+            bytesRead += outByte;
+          }
+          byte selected = tzxInteractiveSelect ? chooseTzxSelection(selections) : 0;
+          int target = selectionsTargets[selected];
+          if (target < 0 || target >= tzxBlockCount) { currentID=BLOCKID::UNKNOWN; break; }
+          bytesRead = tzxBlockOffsets[target];
+          currentTask = TASK::GETID;
+          (void)length;
+          break;
+        }
 
         case BLOCKID::ID2A:
           //Skip//        
@@ -803,9 +1108,24 @@ void TZXProcess() {
           break;
 
         case BLOCKID::ID2B:
-          //Skip//           
-          bytesRead+=5;
-          currentTask = TASK::GETID;
+          // Set signal level. The block payload is a DWORD length followed
+          // by a level byte; current TZX files use a one-byte payload.
+          {
+            unsigned long blockLength = 0;
+            if (!ReadDword() || blockLength < 1 || !ReadByte()) {
+              currentID = BLOCKID::UNKNOWN;
+              break;
+            }
+            if (blockLength > 1) {
+              if (blockLength - 1 > filesize - bytesRead) {
+                currentID = BLOCKID::UNKNOWN;
+                break;
+              }
+              bytesRead += blockLength - 1;
+            }
+            currentPeriod = LEVEL_SIGNAL_FLAG | (outByte ? 1 : 0);
+            currentTask = TASK::GETID;
+          }
           break;
         
         case BLOCKID::ID30:

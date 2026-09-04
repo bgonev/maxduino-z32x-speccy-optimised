@@ -4,6 +4,7 @@
 
 #include <Arduino.h>
 #include <cstring>
+#include <cmath>
 #include <driver/i2s.h>
 #include <esp_idf_version.h>
 #include <soc/soc_caps.h>
@@ -41,10 +42,21 @@ static bool i2sWasPauseBlock = false;
 static uint32_t directSampleLengthUs = 1;
 static uint32_t remainingSamples = 0;
 static int16_t currentSample = 0;
+static uint32_t currentSegmentSamples = 1;
+static uint32_t currentSegmentOffset = 0;
+static bool currentSegmentCanShape = false;
+static uint32_t sampleRemainder = 0;
+
+static uint32_t audio_sample_rate()
+{
+  return pcm5120SampleRate;
+}
 
 static uint32_t us_to_samples(uint32_t durationUs)
 {
-  uint32_t samples = ((uint64_t)durationUs * PCM5120_I2S_SAMPLE_RATE + 500000ULL) / 1000000ULL;
+  const uint64_t scaled = (uint64_t)durationUs * audio_sample_rate() + sampleRemainder;
+  uint32_t samples = scaled / 1000000ULL;
+  sampleRemainder = scaled % 1000000ULL;
   return samples ? samples : 1;
 }
 
@@ -79,11 +91,21 @@ static bool advance_read_pos()
   return true;
 }
 
-static bool next_audio_segment(uint32_t &durationUs, int16_t &sample)
+static bool next_audio_segment(uint32_t &durationUs, int16_t &sample, bool &canShape)
 {
+  canShape = false;
   word workingPeriod = word(readBuffer[readpos], readBuffer[readpos+1]);
   bool pauseFlipBit = false;
   bool swapped = false;
+
+  // TZX 0x2B level marker: update the output state without a pulse.
+  if ((workingPeriod & 0xF000) == LEVEL_SIGNAL_FLAG) {
+    outputHigh = workingPeriod & 1;
+    swapped = advance_read_pos();
+    durationUs = 1;
+    sample = sample_for_output_level();
+    return swapped;
+  }
 
   if ((workingPeriod & HOLD_SIGNAL_MASK) == HOLD_SIGNAL_FLAG) {
     durationUs = workingPeriod & HOLD_SIGNAL_MAX_US;
@@ -157,12 +179,17 @@ static bool next_audio_segment(uint32_t &durationUs, int16_t &sample)
     if (durationUs == 0) durationUs = 1;
     i2sPauseBlock = false;
     i2sWasPauseBlock = true;
+    // A cassette pause is electrical silence after the initial edge.
+    sample = 0;
+    swapped = advance_read_pos();
+    return swapped;
   }
   else {
     i2sWasPauseBlock = false;
     durationUs = workingPeriod ? workingPeriod : 1;
   }
 
+  canShape = true;
   sample = sample_for_output_level();
   swapped = advance_read_pos();
   return swapped;
@@ -175,7 +202,7 @@ void audio_i2s_begin()
   i2s_config_t config;
   std::memset(&config, 0, sizeof(config));
   config.mode = (i2s_mode_t)(I2S_MODE_MASTER | I2S_MODE_TX);
-  config.sample_rate = PCM5120_I2S_SAMPLE_RATE;
+  config.sample_rate = pcm5120SampleRate;
   config.bits_per_sample = I2S_BITS_PER_SAMPLE_16BIT;
   config.channel_format = I2S_CHANNEL_FMT_RIGHT_LEFT;
 #if ESP_IDF_VERSION_MAJOR >= 5
@@ -186,7 +213,11 @@ void audio_i2s_begin()
   config.intr_alloc_flags = 0;
   config.dma_buf_count = 8;
   config.dma_buf_len = I2S_RENDER_FRAMES;
+#ifdef PCM5120_I2S_USE_APLL
+  config.use_apll = true;
+#else
   config.use_apll = false;
+#endif
   config.tx_desc_auto_clear = true;
   config.fixed_mclk = 0;
 
@@ -213,6 +244,11 @@ void audio_i2s_begin()
   i2sInstalled = true;
 }
 
+void audio_i2s_apply_sample_rate()
+{
+  if (i2sInstalled) i2s_set_sample_rates(kI2sPort, pcm5120SampleRate);
+}
+
 void audio_i2s_start()
 {
   audio_i2s_begin();
@@ -230,6 +266,10 @@ void audio_i2s_start()
   directSampleLengthUs = 1;
   remainingSamples = 0;
   currentSample = 0;
+  currentSegmentSamples = 1;
+  currentSegmentOffset = 0;
+  currentSegmentCanShape = false;
+  sampleRemainder = 0;
 
   i2s_zero_dma_buffer(kI2sPort);
   i2sRunning = true;
@@ -266,9 +306,11 @@ bool audio_i2s_service()
     if (remainingSamples == 0) {
       uint32_t durationUs;
       int16_t nextSample;
-      swapped = next_audio_segment(durationUs, nextSample) || swapped;
+      swapped = next_audio_segment(durationUs, nextSample, currentSegmentCanShape) || swapped;
       remainingSamples = us_to_samples(durationUs);
       currentSample = nextSample;
+      currentSegmentSamples = remainingSamples;
+      currentSegmentOffset = 0;
     }
 
     uint32_t count = remainingSamples;
@@ -276,9 +318,29 @@ bool audio_i2s_service()
     if (count > framesLeft) count = framesLeft;
 
     for(uint32_t i = 0; i < count; ++i) {
-      frames[(frame * 2)] = currentSample;
-      frames[(frame * 2) + 1] = currentSample;
+      int16_t sample = currentSample;
+      if (currentSegmentCanShape && pcm5120Waveform == PCM5120Waveform::SINE) {
+        const float phase = (outputHigh ? 0.0f : 3.14159265359f) +
+                            3.14159265359f * ((float)currentSegmentOffset / (float)currentSegmentSamples);
+        sample = (int16_t)(std::sin(phase) * (float)pcm5120I2sAmplitude);
+      } else if (currentSegmentCanShape && pcm5120Waveform == PCM5120Waveform::EDGE_RAMPED) {
+        const uint32_t ramp = currentSegmentSamples / 8 > 1 ? currentSegmentSamples / 8 : 1;
+        const float t = (float)currentSegmentOffset / (float)ramp;
+        const float amount = t < 1.0f ? t : 1.0f;
+        const float from = outputHigh ? -1.0f : 1.0f;
+        const float to = outputHigh ? 1.0f : -1.0f;
+        sample = (int16_t)((from + (to - from) * amount) * (float)pcm5120I2sAmplitude);
+      }
+      // I2S_CHANNEL_FMT_RIGHT_LEFT stores the right sample first, then left.
+      if (pcm5120Channel == PCM5120Channel::LEFT) {
+        frames[(frame * 2)] = 0;
+        frames[(frame * 2) + 1] = sample;
+      } else {
+        frames[(frame * 2)] = sample;
+        frames[(frame * 2) + 1] = 0;
+      }
       frame++;
+      currentSegmentOffset++;
     }
 
     remainingSamples -= count;

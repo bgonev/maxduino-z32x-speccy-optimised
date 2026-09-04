@@ -36,6 +36,14 @@ void wave2() {
     goto _set_period;
   }
 
+  // TZX 0x2B: change the physical signal level without emitting a pulse.
+  if ((workingPeriod & 0xF000) == LEVEL_SIGNAL_FLAG)
+  {
+    pinState = workingPeriod & 1;
+    if (pinState == LOW) WRITE_LOW; else WRITE_HIGH;
+    goto _next;
+  }
+
   if ((workingPeriod & HOLD_SIGNAL_MASK) == HOLD_SIGNAL_FLAG)
   {
 

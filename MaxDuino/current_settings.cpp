@@ -18,8 +18,14 @@ bool skip2A = DEFAULT_SKIP2A;
 
 #if defined(USE_PCM5120_I2S) && defined(ESP32)
 static const char PCM5120_I2S_VOLUME_NVS_KEY[] = "volume_v2";
+static const char PCM5120_I2S_WAVEFORM_NVS_KEY[] = "waveform_v1";
+static const char PCM5120_I2S_CHANNEL_NVS_KEY[] = "channel_v1";
+static const char PCM5120_I2S_SAMPLE_RATE_NVS_KEY[] = "rate_v1";
 
 word pcm5120I2sAmplitude = DEFAULT_PCM5120_I2S_AMPLITUDE;
+PCM5120Waveform pcm5120Waveform = PCM5120Waveform::SQUARE;
+PCM5120Channel pcm5120Channel = PCM5120Channel::LEFT;
+uint32_t pcm5120SampleRate = PCM5120_I2S_SAMPLE_RATE;
 
 word clampPcm5120I2sAmplitude(unsigned long value)
 {
@@ -50,6 +56,19 @@ void loadPersistentPcm5120I2sSettings()
   if (nvs_get_u16(handle, PCM5120_I2S_VOLUME_NVS_KEY, &savedVolume) == ESP_OK) {
     pcm5120I2sAmplitude = clampPcm5120I2sAmplitude(savedVolume);
   }
+  uint8_t savedWaveform = (uint8_t)PCM5120Waveform::SQUARE;
+  if (nvs_get_u8(handle, PCM5120_I2S_WAVEFORM_NVS_KEY, &savedWaveform) == ESP_OK && savedWaveform <= (uint8_t)PCM5120Waveform::EDGE_RAMPED) {
+    pcm5120Waveform = (PCM5120Waveform)savedWaveform;
+  }
+  uint8_t savedChannel = (uint8_t)PCM5120Channel::LEFT;
+  if (nvs_get_u8(handle, PCM5120_I2S_CHANNEL_NVS_KEY, &savedChannel) == ESP_OK && savedChannel <= (uint8_t)PCM5120Channel::RIGHT) {
+    pcm5120Channel = (PCM5120Channel)savedChannel;
+  }
+  uint32_t savedRate = pcm5120SampleRate;
+  if (nvs_get_u32(handle, PCM5120_I2S_SAMPLE_RATE_NVS_KEY, &savedRate) == ESP_OK &&
+      (savedRate == 22050 || savedRate == 44100 || savedRate == 48000)) {
+    pcm5120SampleRate = savedRate;
+  }
 
   nvs_close(handle);
 }
@@ -65,6 +84,43 @@ bool savePersistentPcm5120I2sAmplitude(word value)
   esp_err_t err = nvs_set_u16(handle, PCM5120_I2S_VOLUME_NVS_KEY, pcm5120I2sAmplitude);
   if (err == ESP_OK) err = nvs_commit(handle);
 
+  nvs_close(handle);
+  return err == ESP_OK;
+}
+
+bool savePersistentPcm5120Waveform(PCM5120Waveform value)
+{
+  pcm5120Waveform = value;
+  if (!nvs_ready()) return false;
+  nvs_handle_t handle;
+  if (nvs_open("audio_cfg", NVS_READWRITE, &handle) != ESP_OK) return false;
+  esp_err_t err = nvs_set_u8(handle, PCM5120_I2S_WAVEFORM_NVS_KEY, (uint8_t)value);
+  if (err == ESP_OK) err = nvs_commit(handle);
+  nvs_close(handle);
+  return err == ESP_OK;
+}
+
+bool savePersistentPcm5120Channel(PCM5120Channel value)
+{
+  pcm5120Channel = value;
+  if (!nvs_ready()) return false;
+  nvs_handle_t handle;
+  if (nvs_open("audio_cfg", NVS_READWRITE, &handle) != ESP_OK) return false;
+  esp_err_t err = nvs_set_u8(handle, PCM5120_I2S_CHANNEL_NVS_KEY, (uint8_t)value);
+  if (err == ESP_OK) err = nvs_commit(handle);
+  nvs_close(handle);
+  return err == ESP_OK;
+}
+
+bool savePersistentPcm5120SampleRate(uint32_t value)
+{
+  if (value != 22050 && value != 44100 && value != 48000) return false;
+  pcm5120SampleRate = value;
+  if (!nvs_ready()) return false;
+  nvs_handle_t handle;
+  if (nvs_open("audio_cfg", NVS_READWRITE, &handle) != ESP_OK) return false;
+  esp_err_t err = nvs_set_u32(handle, PCM5120_I2S_SAMPLE_RATE_NVS_KEY, pcm5120SampleRate);
+  if (err == ESP_OK) err = nvs_commit(handle);
   nvs_close(handle);
   return err == ESP_OK;
 }

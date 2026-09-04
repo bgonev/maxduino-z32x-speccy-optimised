@@ -19,6 +19,20 @@
   #include "c64tap.h"
 #endif
 
+static bool validSpectrumTap()
+{
+  unsigned long p = 0;
+  bool foundBlock = false;
+  while (p < filesize) {
+    if (filesize - p < 2 || readfile(2, p) != 2) return false;
+    const unsigned long length = word(filebuffer[1], filebuffer[0]);
+    if (length < 2 || length > filesize - p - 2) return false;
+    p += 2 + length;
+    foundBlock = true;
+  }
+  return foundBlock;
+}
+
 void checkForEXT(const char * const filenameExt) {
   //Check for .xxx file extension as these have no header
 
@@ -31,10 +45,14 @@ void checkForEXT(const char * const filenameExt) {
     if (readfile(20, bytesRead) == 20 && c64tap_is_header(filebuffer, filesize)) {
       c64tap_init();
       return;
-    }
+  }
 #endif
     currentTask=TASK::PROCESSID;
     currentID=BLOCKID::TAP;
+    if (!validSpectrumTap()) {
+      currentID=BLOCKID::UNKNOWN;
+      return;
+    }
     readfile(1,bytesRead);
     if (filebuffer[0] == 0x1A) {
       currentID=BLOCKID::JTAP;    

@@ -8,7 +8,7 @@ We support standard .TAP files with standard timings
 
 ### .TZX
 
-We support most block types for standard .TZX files . Due to differences in interpretations of the .TZX spec, we support some additional flags to change polarity behaviours.
+We support the normal Spectrum pulse/data blocks, pauses, loops, relative jumps, multiple calls/returns, and interactive select blocks, plus CSW recording blocks using RLE compression. Z-RLE CSW and fully general generalized-data (`0x19`) blocks are not yet supported; the existing `0x19` path is retained for ZX81-specific files. Due to differences in interpretations of the .TZX spec, we support some additional flags to change polarity behaviours. The `Skip BLK:2A ?` menu option controls TZX hardware-type stop blocks: it is off by default, so playback stops for manual tape control; enable it to continue automatically.
 
 ### .AY
 
@@ -81,7 +81,7 @@ We support .CAS files for MSX computers.  CAS support is enabled via configurati
 
 .TSX format is a variant of .TZX format with a specific additional block type.  We support .TSX files.
 
-In addition, we have included support for enabling the user to choose their own baud rate, as an alternative to using the timing parameters from the .TSX file itself.  The custom baud rates we support here are 1200 , 2400, 3150, 3600, and 3850 .  To turn on the custom baud rate when playing a .TSX file, toggle the `TSXCzxpUEFSW` option in the menu to 'ON'. (Note that this option has a different meaning for certain other file types).  Turning this option to OFF uses the standard parameters from the .TSX file .
+In addition, we have included support for enabling the user to choose their own baud rate, as an alternative to using the timing parameters from the .TSX file itself.  The custom baud rates we support here are 1200 , 2400, 3150, 3600, and 3850 .  To turn on the custom baud rate when playing a .TSX file, toggle the `Compatibility Mode` option in the menu to 'ON'. (Note that this option has a different meaning for certain other file types).  Turning this option to OFF uses the standard parameters from the .TSX file .
 
 For more information about .TSX format, take a look at https://github.com/nataliapc/makeTSX/wiki
 
@@ -110,7 +110,7 @@ There are several additional customizations for .CAS support for DRAGON computer
 
 .CDT images are essentially the same as .TZX images, for Amstrad CPC computers.
 .CDT support is enabled via configuration flag: `ID11CDTspeedup` .  Without this flag enabled, files with a .cdt extension will not be recognised.  This is enabled in most configurations by default, and there should be very little reason to disable it.
-In addition, we have included support for enabling the user to choose their own baud rate, as an alternative to using the timing parameters  from the .CDT file itself.  The custom baud rates we support here are 1000 (same as ROM default), 2000, 3500, and 4000 .  The menu options currently don't match exactly, so you will choose `1200`, `2400`, `3150` (or `3600`), and `3850`, respectively.  To turn on the custom baud rate when playing a .CDT file, toggle the `TSXCzxpUEFSW` option in the menu to 'ON'. (Note that this option has a different meaning for certain other file types).  Turning this option to OFF uses the standard parameters from the .CDT file .
+In addition, we have included support for enabling the user to choose their own baud rate, as an alternative to using the timing parameters  from the .CDT file itself.  The custom baud rates we support here are 1000 (same as ROM default), 2000, 3500, and 4000 .  The menu options currently don't match exactly, so you will choose `1200`, `2400`, `3150` (or `3600`), and `3850`, respectively.  To turn on the custom baud rate when playing a .CDT file, toggle the `Compatibility Mode` option in the menu to 'ON'. (Note that this option has a different meaning for certain other file types).  Turning this option to OFF uses the standard parameters from the .CDT file .
 
 ## SHARP MZ (MZ-700, MZ-800)
 

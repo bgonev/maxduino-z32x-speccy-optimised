@@ -7,6 +7,7 @@
 void audio_i2s_begin();
 void audio_i2s_start();
 void audio_i2s_stop();
+void audio_i2s_apply_sample_rate();
 bool audio_i2s_service();
 #else
 static inline void audio_i2s_begin() {}

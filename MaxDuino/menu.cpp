@@ -25,6 +25,7 @@
 #include "product_strings.h"
 #include "current_settings.h"
 #include "utils.h"
+#include "audio_i2s.h"
 
 #if defined(WIFI_CONFIG_PORTAL) && defined(ESP32)
 #include <WiFi.h>
@@ -41,6 +42,9 @@ enum MenuItems{
   BAUD_RATE,
 #if defined(USE_PCM5120_I2S) && defined(ESP32)
   VOLUME,
+  WAVEFORM,
+  CHANNEL,
+  SAMPLE_RATE,
 #endif
 #if defined(WIFI_CONFIG_PORTAL) && defined(ESP32)
   IP_ADDRESS,
@@ -59,6 +63,9 @@ const char MENU_ITEM_VERSION[] PROGMEM = "Version...";
 const char MENU_ITEM_BAUD_RATE[] PROGMEM = "Baud Rate ?";
 #if defined(USE_PCM5120_I2S) && defined(ESP32)
 const char MENU_ITEM_VOLUME[] PROGMEM = "Volume";
+const char MENU_ITEM_WAVEFORM[] PROGMEM = "Waveform";
+const char MENU_ITEM_CHANNEL[] PROGMEM = "Audio Channel";
+const char MENU_ITEM_SAMPLE_RATE[] PROGMEM = "Sample Rate";
 #endif
 #if defined(WIFI_CONFIG_PORTAL) && defined(ESP32)
 const char MENU_ITEM_IP_ADDRESS[] PROGMEM = "IP Address";
@@ -66,7 +73,7 @@ const char MENU_ITEM_IP_ADDRESS[] PROGMEM = "IP Address";
 #ifndef NO_MOTOR
 const char MENU_ITEM_MOTOR_CTRL[] PROGMEM = "Motor Ctrl ?";
 #endif
-const char MENU_ITEM_TSX[] PROGMEM = "TSXCzxpUEFSW ?";
+const char MENU_ITEM_TSX[] PROGMEM = "Compatibility Mode ?";
 #ifdef MenuBLK2A
 const char MENU_ITEM_BLK2A[] PROGMEM = "Skip BLK:2A ?";
 #endif
@@ -75,6 +82,9 @@ const char* const MENU_ITEMS[] PROGMEM = {
   MENU_ITEM_BAUD_RATE,
 #if defined(USE_PCM5120_I2S) && defined(ESP32)
   MENU_ITEM_VOLUME,
+  MENU_ITEM_WAVEFORM,
+  MENU_ITEM_CHANNEL,
+  MENU_ITEM_SAMPLE_RATE,
 #endif
 #if defined(WIFI_CONFIG_PORTAL) && defined(ESP32)
   MENU_ITEM_IP_ADDRESS,
@@ -130,27 +140,39 @@ void doVolumeSubmenu()
 {
   bool updateScreen=true;
   bool changed=false;
+  bool navigationHeld=false;
+  uint32_t navigationStarted=0;
+  uint32_t nextRepeat=0;
   lastbtn=true;
   while(!button_stop() || lastbtn) {
-    if(button_up() && !lastbtn) {
-      if(pcm5120I2sAmplitude <= (PCM5120_I2S_VOLUME_MAX - PCM5120_I2S_VOLUME_STEP)) {
-        pcm5120I2sAmplitude += PCM5120_I2S_VOLUME_STEP;
-      } else {
-        pcm5120I2sAmplitude = PCM5120_I2S_VOLUME_MAX;
+    const bool up = button_up();
+    const bool down = button_down();
+    const bool navigating = up || down;
+    const uint32_t now = millis();
+
+    if (navigating) {
+      if (!navigationHeld) {
+        navigationHeld = true;
+        navigationStarted = now;
+        nextRepeat = now + 1000UL;
       }
-      lastbtn=true;
-      updateScreen=true;
-      changed=true;
-    }
-    if(button_down() && !lastbtn) {
-      if(pcm5120I2sAmplitude >= (PCM5120_I2S_VOLUME_MIN + PCM5120_I2S_VOLUME_STEP)) {
-        pcm5120I2sAmplitude -= PCM5120_I2S_VOLUME_STEP;
-      } else {
-        pcm5120I2sAmplitude = PCM5120_I2S_VOLUME_MIN;
+      if (now == navigationStarted || (now - navigationStarted >= 1000UL &&
+          (int32_t)(now - nextRepeat) >= 0)) {
+        if (up) {
+          if (pcm5120I2sAmplitude <= (PCM5120_I2S_VOLUME_MAX - PCM5120_I2S_VOLUME_STEP))
+            pcm5120I2sAmplitude += PCM5120_I2S_VOLUME_STEP;
+          else pcm5120I2sAmplitude = PCM5120_I2S_VOLUME_MAX;
+        } else {
+          if (pcm5120I2sAmplitude >= (PCM5120_I2S_VOLUME_MIN + PCM5120_I2S_VOLUME_STEP))
+            pcm5120I2sAmplitude -= PCM5120_I2S_VOLUME_STEP;
+          else pcm5120I2sAmplitude = PCM5120_I2S_VOLUME_MIN;
+        }
+        changed=true;
+        updateScreen=true;
+        if (now - navigationStarted >= 1000UL) nextRepeat = now + 300UL;
       }
-      lastbtn=true;
-      updateScreen=true;
-      changed=true;
+    } else {
+      navigationHeld = false;
     }
 
     if(updateScreen) {
@@ -159,11 +181,80 @@ void doVolumeSubmenu()
       updateScreen=false;
     }
 
-    checkLastButton();
+    if (button_stop()) lastbtn=true;
+    else if (!button_any()) lastbtn=false;
+    delay(20);
   }
 
   if(changed) {
     savePersistentPcm5120I2sAmplitude(pcm5120I2sAmplitude);
+  }
+}
+
+void doWaveformSubmenu()
+{
+  bool updateScreen = true;
+  lastbtn = true;
+  while(!button_stop() || lastbtn) {
+    if ((button_up() || button_down()) && !lastbtn) {
+      if (pcm5120Waveform == PCM5120Waveform::SQUARE) pcm5120Waveform = PCM5120Waveform::SINE;
+      else if (pcm5120Waveform == PCM5120Waveform::SINE) pcm5120Waveform = PCM5120Waveform::EDGE_RAMPED;
+      else pcm5120Waveform = PCM5120Waveform::SQUARE;
+      savePersistentPcm5120Waveform(pcm5120Waveform);
+      lastbtn = true;
+      updateScreen = true;
+    }
+    if (updateScreen) {
+      if (pcm5120Waveform == PCM5120Waveform::SQUARE) printtextF(PSTR("Square *"), M_LINE2);
+      else if (pcm5120Waveform == PCM5120Waveform::SINE) printtextF(PSTR("Sine *"), M_LINE2);
+      else printtextF(PSTR("Edge Ramp *"), M_LINE2);
+      updateScreen = false;
+    }
+    checkLastButton();
+  }
+}
+
+void doChannelSubmenu()
+{
+  bool updateScreen = true;
+  lastbtn = true;
+  while(!button_stop() || lastbtn) {
+    if ((button_up() || button_down()) && !lastbtn) {
+      pcm5120Channel = pcm5120Channel == PCM5120Channel::LEFT ? PCM5120Channel::RIGHT : PCM5120Channel::LEFT;
+      savePersistentPcm5120Channel(pcm5120Channel);
+      lastbtn = true;
+      updateScreen = true;
+    }
+    if (updateScreen) {
+      printtextF(pcm5120Channel == PCM5120Channel::LEFT ? PSTR("Left *") : PSTR("Right *"), M_LINE2);
+      updateScreen = false;
+    }
+    checkLastButton();
+  }
+}
+
+void doSampleRateSubmenu()
+{
+  const uint32_t rates[] = {22050, 44100, 48000};
+  byte selected = pcm5120SampleRate == 22050 ? 0 : (pcm5120SampleRate == 48000 ? 2 : 1);
+  bool updateScreen = true;
+  lastbtn = true;
+  while(!button_stop() || lastbtn) {
+    if (button_up() && !lastbtn && selected > 0) { selected--; lastbtn=true; updateScreen=true; }
+    if (button_down() && !lastbtn && selected < 2) { selected++; lastbtn=true; updateScreen=true; }
+    if (button_play() && !lastbtn) {
+      pcm5120SampleRate = rates[selected];
+      savePersistentPcm5120SampleRate(pcm5120SampleRate);
+      audio_i2s_apply_sample_rate();
+      lastbtn = true;
+      updateScreen = true;
+    }
+    if (updateScreen) {
+      ultoa(rates[selected], (char *)input, 10);
+      printtext((char *)input, M_LINE2);
+      updateScreen = false;
+    }
+    checkLastButton();
   }
 }
 #endif
@@ -268,6 +359,15 @@ void menuMode()
           case MenuItems::VOLUME:
             doVolumeSubmenu();
             break;
+          case MenuItems::WAVEFORM:
+            doWaveformSubmenu();
+            break;
+          case MenuItems::CHANNEL:
+            doChannelSubmenu();
+            break;
+          case MenuItems::SAMPLE_RATE:
+            doSampleRateSubmenu();
+            break;
         #endif
 
         #if defined(WIFI_CONFIG_PORTAL) && defined(ESP32)
@@ -286,11 +386,11 @@ void menuMode()
           doOnOffSubmenu(TSXCONTROLzxpolarityUEFSWITCHPARITY);
           break;
           
-        #ifdef MenuBLK2A
+#ifdef MenuBLK2A
           case MenuItems::BLK2A:
             doOnOffSubmenu(skip2A);
             break;
-        #endif     
+#endif
       }
       lastbtn=true;
       updateScreen=true;

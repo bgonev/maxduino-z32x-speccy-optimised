@@ -13,7 +13,8 @@ byte filebuffer[20]; // used for small reads from files (readfile, ReadByte, etc
 byte readfile(byte nbytes, unsigned long p)
 {
   byte i=0;
-  if(entry.seekSet(p)) {
+  // Never allow a malformed tape image to read past the end of the file.
+  if (p <= filesize && nbytes <= (filesize - p) && entry.seekSet(p)) {
     i=entry.read(filebuffer, nbytes);
   } 
   return i;
