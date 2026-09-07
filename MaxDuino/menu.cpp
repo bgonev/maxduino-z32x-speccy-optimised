@@ -135,6 +135,42 @@ void doOnOffSubmenu(bool& refVar)
   }
 }
 
+static void doCompatibilitySubmenu()
+{
+  byte selected = (byte)compatibilityMode;
+  bool updateScreen = true;
+  lastbtn = true;
+  while (!button_stop() || lastbtn) {
+    if (button_up() && !lastbtn) {
+      selected = selected == 0 ? 2 : selected - 1;
+      lastbtn = true;
+      updateScreen = true;
+    }
+    if (button_down() && !lastbtn) {
+      selected = selected == 2 ? 0 : selected + 1;
+      lastbtn = true;
+      updateScreen = true;
+    }
+    if (button_play() && !lastbtn) {
+      compatibilityMode = (CompatibilityMode)selected;
+      if (compatibilityMode == CompatibilityMode::ON) {
+        TSXCONTROLzxpolarityUEFSWITCHPARITY = true;
+      } else if (compatibilityMode == CompatibilityMode::OFF) {
+        TSXCONTROLzxpolarityUEFSWITCHPARITY = false;
+      }
+      lastbtn = true;
+      updateScreen = true;
+    }
+    if (updateScreen) {
+      if (selected == (byte)CompatibilityMode::OFF) printtextF(PSTR("Off *"), M_LINE2);
+      else if (selected == (byte)CompatibilityMode::ON) printtextF(PSTR("On *"), M_LINE2);
+      else printtextF(PSTR("Auto *"), M_LINE2);
+      updateScreen = false;
+    }
+    checkLastButton();
+  }
+}
+
 #if defined(USE_PCM5120_I2S) && defined(ESP32)
 void doVolumeSubmenu()
 {
@@ -383,7 +419,7 @@ void menuMode()
         #endif
 
         case MenuItems::TSX_POL_UEFSW:
-          doOnOffSubmenu(TSXCONTROLzxpolarityUEFSWITCHPARITY);
+          doCompatibilitySubmenu();
           break;
           
 #ifdef MenuBLK2A

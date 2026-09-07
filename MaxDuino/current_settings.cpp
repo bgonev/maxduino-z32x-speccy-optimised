@@ -13,8 +13,14 @@ word BAUDRATE = DEFAULT_BAUDRATE;
 // TODO really the following should only be defined ifndef NO_MOTOR
 // but the order of #includes is wrong and we only define NO_MOTOR later :-/
 bool mselectMask = DEFAULT_MSELECTMASK;
+CompatibilityMode compatibilityMode = CompatibilityMode::AUTO;
 bool TSXCONTROLzxpolarityUEFSWITCHPARITY = DEFAULT_TSXzxpUEF;
 bool skip2A = DEFAULT_SKIP2A;
+
+bool compatibilityEnabled()
+{
+  return TSXCONTROLzxpolarityUEFSWITCHPARITY;
+}
 
 #if defined(USE_PCM5120_I2S) && defined(ESP32)
 static const char PCM5120_I2S_VOLUME_NVS_KEY[] = "volume_v2";

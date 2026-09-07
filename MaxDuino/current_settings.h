@@ -6,8 +6,11 @@
 
 extern word BAUDRATE;
 extern bool mselectMask;
+enum class CompatibilityMode : byte { OFF = 0, ON = 1, AUTO = 2 };
+extern CompatibilityMode compatibilityMode;
 extern bool TSXCONTROLzxpolarityUEFSWITCHPARITY;
 extern bool skip2A;
+bool compatibilityEnabled();
 
 #if defined(USE_PCM5120_I2S) && defined(ESP32)
 enum class PCM5120Waveform : byte { SQUARE = 0, SINE = 1, EDGE_RAMPED = 2 };

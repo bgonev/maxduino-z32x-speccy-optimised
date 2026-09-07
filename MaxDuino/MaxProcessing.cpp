@@ -86,16 +86,22 @@ static unsigned long tzx_u32(unsigned long p) {
          ((unsigned long)filebuffer[2] << 16) | ((unsigned long)filebuffer[3] << 24);
 }
 
+static unsigned long tzx_u24(unsigned long p) {
+  if (readfile(3, p) != 3) return 0;
+  return (unsigned long)filebuffer[0] | ((unsigned long)filebuffer[1] << 8) |
+         ((unsigned long)filebuffer[2] << 16);
+}
+
 static unsigned long tzx_block_size(unsigned long p) {
   if (p >= filesize) return 0;
   if (readfile(1, p) != 1) return 0;
   byte id=filebuffer[0];
   if (id==0x10) return 5 + (readfile(2,p+3)==2 ? word(filebuffer[1],filebuffer[0]) : 0);
-  if (id==0x11) return 19 + tzx_u32(p+16);
+  if (id==0x11) return 19 + tzx_u24(p+16);
   if (id==0x12) return 5;
   if (id==0x13) return readfile(1,p+1)==1 ? 2 + (2UL*filebuffer[0]) : 0;
-  if (id==0x14) return 10 + tzx_u32(p+8);
-  if (id==0x15) return 8 + tzx_u32(p+5);
+  if (id==0x14) return 11 + tzx_u24(p+8);
+  if (id==0x15) return 9 + tzx_u24(p+5);
   if (id==0x18 || id==0x19) return 5 + tzx_u32(p+1);
   if (id==0x20) return 3;
   if (id==0x21) return readfile(1,p+1)==1 ? 2 + filebuffer[0] : 0;
@@ -183,9 +189,35 @@ void UniPlay(){
   block=0;                                    // Initial block when starting
   currentBit=0;                               // fallo reproducción de .tap tras .tzx
   bytesRead=0;                                //start of file
+  // Do not let a previous TZX block ID leak into format detection.  TAP and
+  // other headerless formats set currentID/currentTask in checkForEXT(); the
+  // TZX processor must preserve that decision instead of trying to read a
+  // TZX header from the file.
+  currentID=BLOCKID::UNKNOWN;
   currentTask=TASK::INIT;                     //
   const char * filenameExt = strrchr(fileName,'.') + 1;
   checkForEXT(filenameExt);
+  const bool isTzxFile =
+    (filenameExt[0] == 't' || filenameExt[0] == 'T') &&
+    (filenameExt[1] == 'z' || filenameExt[1] == 'Z') &&
+    (filenameExt[2] == 'x' || filenameExt[2] == 'X') &&
+    filenameExt[3] == '\0';
+  if (compatibilityMode == CompatibilityMode::AUTO && isTzxFile) {
+    bool hasPureTone = false;
+    bool hasPulseSequence = false;
+    bool hasPureData = false;
+    for (uint16_t i = 0; i < tzxBlockCount; ++i) {
+      if (readfile(1, tzxBlockOffsets[i]) != 1) continue;
+      if (filebuffer[0] == BLOCKID::ID12) hasPureTone = true;
+      else if (filebuffer[0] == BLOCKID::ID13) hasPulseSequence = true;
+      else if (filebuffer[0] == BLOCKID::ID14) hasPureData = true;
+    }
+    TSXCONTROLzxpolarityUEFSWITCHPARITY =
+      hasPureTone && hasPulseSequence && hasPureData;
+  } else {
+    TSXCONTROLzxpolarityUEFSWITCHPARITY =
+      compatibilityMode == CompatibilityMode::ON;
+  }
   isStopped=false;
   
   clearBuffer();
@@ -628,8 +660,13 @@ void TZXProcess() {
   currentPeriod = 0;
   switch (currentTask) {
     case TASK::INIT:
-      //First task: search for header
-      currentTask = TASK::GETFILEHEADER;
+      // Headerless formats are selected by checkForEXT().  Only an unknown
+      // format needs the TZX header reader.
+      if (currentID == BLOCKID::UNKNOWN) {
+        currentTask = TASK::GETFILEHEADER;
+      } else {
+        currentTask = TASK::PROCESSID;
+      }
       break;
   
     case TASK::GETFILEHEADER:
@@ -674,6 +711,10 @@ void TZXProcess() {
           if (tzxBlockOffsets[i] == bytesRead-1) { tzxCurrentBlock=i; break; }
         }
       } else {
+        // There is no block after the final data block.  Mark the logical
+        // end here so the PCM renderer can drain the already generated final
+        // buffer without adding the legacy synthetic EOF pulse train.
+        EndOfFile = true;
         currentID = BLOCKID::IDEOF;
       }
       //reset data block values
@@ -744,7 +785,7 @@ void TZXProcess() {
                 onePulse = TickToUs(outWord);
               }          
             #else    
-              if (TSXCONTROLzxpolarityUEFSWITCHPARITY && AMScdt){ 
+              if (compatibilityEnabled() && AMScdt){ 
                 bytesRead += 10;
                 switch(BAUDRATE){
                   case 1200: // 1000 Normal baudrate

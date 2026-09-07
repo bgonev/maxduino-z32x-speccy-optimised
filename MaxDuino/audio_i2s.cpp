@@ -12,6 +12,7 @@
 #include "buffer.h"
 #include "current_settings.h"
 #include "MaxDuino.h"
+#include "MaxProcessing.h"
 #include "processing_state.h"
 
 #ifndef PCM5120_I2S_SAMPLE_RATE
@@ -167,7 +168,7 @@ static bool next_audio_segment(uint32_t &durationUs, int16_t &sample, bool &canS
   if (i2sPauseBlock) {
     if (pauseFlipBit) {
       durationUs = 1500;
-      outputHigh = TSXCONTROLzxpolarityUEFSWITCHPARITY;
+      outputHigh = compatibilityEnabled();
       workingPeriod = workingPeriod - 1;
       readBuffer[readpos] = workingPeriod / 256;
       readBuffer[readpos+1] = workingPeriod % 256;
@@ -279,6 +280,16 @@ void audio_i2s_stop()
 {
   if (!i2sInstalled) return;
 
+  // TZXProcess() can reach the logical end of a file while the final
+  // generated periods are still in the PCM render buffer.  Stopping I2S and
+  // clearing its DMA buffer here truncates the last tape block, leaving the
+  // Spectrum in its loading screen.  Preserve the render state for natural
+  // EOF; audio_i2s_start() resets it when the next file is selected.  A
+  // manual stop occurs with EndOfFile clear and remains immediate.
+  if (EndOfFile) {
+    return;
+  }
+
   i2sRunning = false;
   remainingSamples = 0;
   currentSample = 0;
@@ -331,13 +342,16 @@ bool audio_i2s_service()
         const float to = outputHigh ? 1.0f : -1.0f;
         sample = (int16_t)((from + (to - from) * amount) * (float)pcm5120I2sAmplitude);
       }
-      // I2S_CHANNEL_FMT_RIGHT_LEFT stores the right sample first, then left.
+      // In the ESP32 legacy I2S driver, RIGHT_LEFT uses the normal I2S
+      // slot order: left sample first, right sample second.  Keep the
+      // cassette waveform on exactly one slot so the menu selection maps to
+      // the physical PCM5120 channel as expected.
       if (pcm5120Channel == PCM5120Channel::LEFT) {
-        frames[(frame * 2)] = 0;
-        frames[(frame * 2) + 1] = sample;
-      } else {
         frames[(frame * 2)] = sample;
         frames[(frame * 2) + 1] = 0;
+      } else {
+        frames[(frame * 2)] = 0;
+        frames[(frame * 2) + 1] = sample;
       }
       frame++;
       currentSegmentOffset++;

@@ -137,8 +137,8 @@ void tzx_process_taskid_uef_getchunkid() {
           bytesRead+= 1;
           //grab 1 byte Parity
           if(ReadByte()) {
-            if (outByte == 'O') parity = TSXCONTROLzxpolarityUEFSWITCHPARITY ? 2 : 1;
-            else if (outByte == 'E') parity = TSXCONTROLzxpolarityUEFSWITCHPARITY ? 1 : 2;
+            if (outByte == 'O') parity = compatibilityEnabled() ? 2 : 1;
+            else if (outByte == 'E') parity = compatibilityEnabled() ? 1 : 2;
             else parity = 0 ;  // 'N'
           }
           bytesRead+= 1;                                         

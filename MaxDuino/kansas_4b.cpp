@@ -87,7 +87,7 @@ void tzx_process_blockid_kansas_4b() {
       if(ReadWord()) {  // Pause after block in ms
         pauseLength = outWord;
       }
-      if (!TSXCONTROLzxpolarityUEFSWITCHPARITY){
+      if (!compatibilityEnabled()){
         if(ReadWord()) {  // T-states each pilot pulse
           pilotLength = TickToUs(outWord);
         }

@@ -178,7 +178,7 @@ _after_invert:
             goto _after_pause_flip;
          }
       #endif
-      pinState = TSXCONTROLzxpolarityUEFSWITCHPARITY;  
+      pinState = compatibilityEnabled();  
  _after_pause_flip:
       // reduce pause by 1ms as we've already pause for 1.5ms
       workingPeriod = workingPeriod - 1;
