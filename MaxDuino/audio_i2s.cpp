@@ -47,6 +47,13 @@ static uint32_t currentSegmentSamples = 1;
 static uint32_t currentSegmentOffset = 0;
 static bool currentSegmentCanShape = false;
 static uint32_t sampleRemainder = 0;
+static bool stopAfterDrain = false;
+static uint32_t stopAfterDrainDeadline = 0;
+
+// The producer can finish the file while a final period is still queued in
+// the render path.  Keep I2S alive briefly so that period is transmitted, but
+// always shut it down afterwards instead of servicing stale buffers forever.
+static constexpr uint32_t I2S_EOF_DRAIN_MS = 1500;
 
 static uint32_t audio_sample_rate()
 {
@@ -271,6 +278,8 @@ void audio_i2s_start()
   currentSegmentOffset = 0;
   currentSegmentCanShape = false;
   sampleRemainder = 0;
+  stopAfterDrain = false;
+  stopAfterDrainDeadline = 0;
 
   i2s_zero_dma_buffer(kI2sPort);
   i2sRunning = true;
@@ -281,15 +290,18 @@ void audio_i2s_stop()
   if (!i2sInstalled) return;
 
   // TZXProcess() can reach the logical end of a file while the final
-  // generated periods are still in the PCM render buffer.  Stopping I2S and
-  // clearing its DMA buffer here truncates the last tape block, leaving the
-  // Spectrum in its loading screen.  Preserve the render state for natural
-  // EOF; audio_i2s_start() resets it when the next file is selected.  A
-  // manual stop occurs with EndOfFile clear and remains immediate.
+  // generated periods are still in the PCM render buffer.  Drain briefly at
+  // natural EOF so the final block is not truncated, then let
+  // audio_i2s_service() perform the normal shutdown.  Manual stop remains
+  // immediate.
   if (EndOfFile) {
+    stopAfterDrain = true;
+    stopAfterDrainDeadline = millis() + I2S_EOF_DRAIN_MS;
     return;
   }
 
+  stopAfterDrain = false;
+  stopAfterDrainDeadline = 0;
   i2sRunning = false;
   remainingSamples = 0;
   currentSample = 0;
@@ -299,6 +311,16 @@ void audio_i2s_stop()
 bool audio_i2s_service()
 {
   if (!i2sInstalled || !i2sRunning) return false;
+
+  if (stopAfterDrain && (int32_t)(millis() - stopAfterDrainDeadline) >= 0) {
+    stopAfterDrain = false;
+    stopAfterDrainDeadline = 0;
+    i2sRunning = false;
+    remainingSamples = 0;
+    currentSample = 0;
+    i2s_zero_dma_buffer(kI2sPort);
+    return false;
+  }
 
   int16_t frames[I2S_RENDER_FRAMES * 2];
   uint16_t frame = 0;
