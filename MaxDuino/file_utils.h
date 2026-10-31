@@ -19,6 +19,8 @@ extern byte filebuffer[]; // used for small reads from files (readfile, ReadByte
 extern byte lastByte;
 
 byte readfile(byte nbytes, unsigned long p);
+bool preparePlaybackCache();
+void releasePlaybackCache();
 byte ReadByte();
 byte ReadWord();
 byte ReadLong();

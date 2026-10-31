@@ -16,6 +16,7 @@ extern word currentPeriod;
 extern word pauseLength;
 extern unsigned long bytesToRead;
 extern bool EndOfFile;
+extern bool speedlockTimingProfile;
 
 extern word temppause;
 extern byte currentByte;

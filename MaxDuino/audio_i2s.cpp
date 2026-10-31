@@ -175,7 +175,9 @@ static bool next_audio_segment(uint32_t &durationUs, int16_t &sample, bool &canS
   if (i2sPauseBlock) {
     if (pauseFlipBit) {
       durationUs = 1500;
-      outputHigh = compatibilityEnabled();
+      if (!speedlockTimingProfile) {
+        outputHigh = compatibilityEnabled();
+      }
       workingPeriod = workingPeriod - 1;
       readBuffer[readpos] = workingPeriod / 256;
       readBuffer[readpos+1] = workingPeriod % 256;

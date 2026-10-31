@@ -2,6 +2,7 @@
 #include "file_utils.h"
 #include "sdfat_config.h"
 #include <SdFat.h>
+#include <stdlib.h>
 
 SdBaseFile entry;  // SD card file
 unsigned long bytesRead=0;
@@ -10,11 +11,45 @@ byte lastByte;
 _readout_type readout;
 
 byte filebuffer[20]; // used for small reads from files (readfile, ReadByte, etc use this), sized for the largest header read
+static byte *playbackCache = nullptr;
+static unsigned long playbackCacheSize = 0;
+
+// Keep the complete tape image in RAM when it is small enough.  This removes
+// SD latency from the timing-sensitive playback path while leaving very large
+// images on the normal streaming path.
+static const unsigned long PLAYBACK_CACHE_LIMIT = 128UL * 1024UL;
+
+bool preparePlaybackCache()
+{
+  releasePlaybackCache();
+  if (filesize == 0 || filesize > PLAYBACK_CACHE_LIMIT) return false;
+  byte *cache = (byte *)malloc(filesize);
+  if (!cache) return false;
+  if (!entry.seekSet(0) || entry.read(cache, filesize) != (int)filesize) {
+    free(cache);
+    return false;
+  }
+  playbackCache = cache;
+  playbackCacheSize = filesize;
+  return true;
+}
+
+void releasePlaybackCache()
+{
+  if (playbackCache) free(playbackCache);
+  playbackCache = nullptr;
+  playbackCacheSize = 0;
+}
+
 byte readfile(byte nbytes, unsigned long p)
 {
   byte i=0;
   // Never allow a malformed tape image to read past the end of the file.
-  if (p <= filesize && nbytes <= (filesize - p) && entry.seekSet(p)) {
+  if (p <= filesize && nbytes <= (filesize - p) &&
+      playbackCache && p <= playbackCacheSize && nbytes <= (playbackCacheSize - p)) {
+    memcpy(filebuffer, playbackCache + p, nbytes);
+    i = nbytes;
+  } else if (p <= filesize && nbytes <= (filesize - p) && entry.seekSet(p)) {
     i=entry.read(filebuffer, nbytes);
   } 
   return i;

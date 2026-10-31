@@ -48,6 +48,7 @@ word currentPeriod=1;
 word pauseLength=0;
 unsigned long bytesToRead=0;
 bool EndOfFile=false;
+bool speedlockTimingProfile=false;
 static const byte TZX_LOOP_STACK_SIZE = 8;
 static unsigned long tzxLoopStarts[TZX_LOOP_STACK_SIZE];
 static word tzxLoopCounts[TZX_LOOP_STACK_SIZE];
@@ -182,6 +183,7 @@ void UniPlay(){
   if(!entry.open(currentDir, currentFile, O_RDONLY)) {
   //  printtextF(PSTR("Error Opening File"),0);
   }
+  preparePlaybackCache();
 
 #ifdef ID11CDTspeedup
   AMScdt = false;
@@ -195,6 +197,7 @@ void UniPlay(){
   // TZX header from the file.
   currentID=BLOCKID::UNKNOWN;
   currentTask=TASK::INIT;                     //
+  speedlockTimingProfile=false;
   const char * filenameExt = strrchr(fileName,'.') + 1;
   checkForEXT(filenameExt);
   const bool isTzxFile =
@@ -203,15 +206,21 @@ void UniPlay(){
     (filenameExt[2] == 'x' || filenameExt[2] == 'X') &&
     filenameExt[3] == '\0';
   if (compatibilityMode == CompatibilityMode::AUTO && isTzxFile) {
+    if (readfile(10, 0) == 10 && memcmp_P(filebuffer, TZXTape, 7) == 0) {
+      indexTZXBlocks();
+    }
     bool hasPureTone = false;
     bool hasPulseSequence = false;
     bool hasPureData = false;
+    bool hasLoop = false;
     for (uint16_t i = 0; i < tzxBlockCount; ++i) {
       if (readfile(1, tzxBlockOffsets[i]) != 1) continue;
       if (filebuffer[0] == BLOCKID::ID12) hasPureTone = true;
       else if (filebuffer[0] == BLOCKID::ID13) hasPulseSequence = true;
       else if (filebuffer[0] == BLOCKID::ID14) hasPureData = true;
+      else if (filebuffer[0] == BLOCKID::ID24 || filebuffer[0] == BLOCKID::ID25) hasLoop = true;
     }
+    speedlockTimingProfile = hasPureTone && hasPulseSequence && hasPureData && hasLoop;
     TSXCONTROLzxpolarityUEFSWITCHPARITY =
       hasPureTone && hasPulseSequence && hasPureData;
   } else {
@@ -253,6 +262,7 @@ void UniStop() {
 #else
   Timer.stop();
 #endif
+  releasePlaybackCache();
   isStopped=true;
   start=0;
   entry.close();                              //Close file
@@ -1036,12 +1046,13 @@ void TZXProcess() {
 
         case BLOCKID::ID21:
           //Process ID21 - Group Start
-          #if defined(BLOCKID21_IN)
-            block_mem_oled();
-          #endif
-                        
-          if(ReadByte()) {
-            bytesRead += outByte;
+          // Group markers are metadata only. Skip directly to the next
+          // indexed block and avoid display/I2C work during playback.
+          if (tzxCurrentBlock >= 0 && tzxCurrentBlock + 1 < tzxBlockCount) {
+            bytesRead = tzxBlockOffsets[tzxCurrentBlock + 1];
+          } else {
+            currentID = BLOCKID::UNKNOWN;
+            break;
           }
           currentTask = TASK::GETID;
           break;
